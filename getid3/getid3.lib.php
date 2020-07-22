@@ -681,10 +681,10 @@ class getid3_lib
 	 */
 	public static function array_max($arraydata, $returnkey=false) {
 		$maxvalue = false;
-		$maxkey = false;
+		$maxkey   = false;
 		foreach ($arraydata as $key => $value) {
 			if (!is_array($value)) {
-				if ($value > $maxvalue) {
+				if (($maxvalue === false) || ($value > $maxvalue)) {
 					$maxvalue = $value;
 					$maxkey = $key;
 				}
@@ -701,10 +701,10 @@ class getid3_lib
 	 */
 	public static function array_min($arraydata, $returnkey=false) {
 		$minvalue = false;
-		$minkey = false;
+		$minkey   = false;
 		foreach ($arraydata as $key => $value) {
 			if (!is_array($value)) {
-				if ($value > $minvalue) {
+				if (($minvalue === false) || ($value < $minvalue)) {
 					$minvalue = $value;
 					$minkey = $key;
 				}
@@ -1534,60 +1534,63 @@ class getid3_lib
 	 * @return bool
 	 */
 	public static function CopyTagsToComments(&$ThisFileInfo, $option_tags_html=true) {
-
-		$comment_arrays = array('comments');
-		if ($option_tags_html) {
-			$comment_arrays[] = 'comments_html';
-		}
 		// Copy all entries from ['tags'] into common ['comments']
 		if (!empty($ThisFileInfo['tags'])) {
+			if (isset($ThisFileInfo['tags']['id3v1'])) {
+				// bubble ID3v1 to the end, if present to aid in detecting bad ID3v1 encodings
+				$ID3v1 = $ThisFileInfo['tags']['id3v1'];
+				unset($ThisFileInfo['tags']['id3v1']);
+				$ThisFileInfo['tags']['id3v1'] = $ID3v1;
+				unset($ID3v1);
+			}
 			foreach ($ThisFileInfo['tags'] as $tagtype => $tagarray) {
 				foreach ($tagarray as $tagname => $tagdata) {
 					foreach ($tagdata as $key => $value) {
-						foreach($comment_arrays as $comments) {
-							if (($comments != 'comments') && ($key == 'picture')) {
-								// pictures can take up a lot of space, and we don't need multiple copies of them
-								// let there be a single copy in [comments][picture], and not elsewhere
-								continue;
-							}
-							if (!empty($value)) {
-								if (empty($ThisFileInfo[$comments][$tagname])) {
+						if (!empty($value)) {
+							if (empty($ThisFileInfo['comments'][$tagname])) {
 
-									// fall through and append value
+								// fall through and append value
 
-								} elseif ($tagtype == 'id3v1') {
+							} elseif ($tagtype == 'id3v1') {
 
-									$newvaluelength = strlen(trim($value));
-									foreach ($ThisFileInfo[$comments][$tagname] as $existingkey => $existingvalue) {
-										$oldvaluelength = strlen(trim($existingvalue));
-										if (($newvaluelength <= $oldvaluelength) && (substr($existingvalue, 0, $newvaluelength) == trim($value))) {
-											// new value is identical but shorter-than (or equal-length to) one already in comments - skip
+								$newvaluelength = strlen(trim($value));
+								foreach ($ThisFileInfo['comments'][$tagname] as $existingkey => $existingvalue) {
+									$oldvaluelength = strlen(trim($existingvalue));
+									if (($newvaluelength <= $oldvaluelength) && (substr($existingvalue, 0, $newvaluelength) == trim($value))) {
+										// new value is identical but shorter-than (or equal-length to) one already in comments - skip
+										break 2;
+									}
+
+									if (function_exists('mb_convert_encoding')) {
+										if (trim($value) == trim(substr(mb_convert_encoding($existingvalue, $ThisFileInfo['id3v1']['encoding'], $ThisFileInfo['encoding']), 0, 30))) {
+											// value stored in ID3v1 appears to be probably the multibyte value transliterated (badly) into ISO-8859-1 in ID3v1.
+											// As an example, Foobar2000 will do this if you tag a file with Chinese or Arabic or Cyrillic or something that doesn't fit into ISO-8859-1 the ID3v1 will consist of mostly "?" characters, one per multibyte unrepresentable character
 											break 2;
 										}
 									}
-
-								} elseif (!is_array($value)) {
-
-									$newvaluelength = strlen(trim($value));
-									foreach ($ThisFileInfo[$comments][$tagname] as $existingkey => $existingvalue) {
-										$oldvaluelength = strlen(trim($existingvalue));
-										if ((strlen($existingvalue) > 10) && ($newvaluelength > $oldvaluelength) && (substr(trim($value), 0, strlen($existingvalue)) == $existingvalue)) {
-											$ThisFileInfo[$comments][$tagname][$existingkey] = trim($value);
-											break;
-										}
-									}
-
 								}
-								if (is_array($value) || empty($ThisFileInfo[$comments][$tagname]) || !in_array(trim($value), $ThisFileInfo[$comments][$tagname])) {
-									$value = (is_string($value) ? trim($value) : $value);
-									if (!is_int($key) && !ctype_digit($key)) {
-										$ThisFileInfo[$comments][$tagname][$key] = $value;
+
+							} elseif (!is_array($value)) {
+
+								$newvaluelength = strlen(trim($value));
+								foreach ($ThisFileInfo['comments'][$tagname] as $existingkey => $existingvalue) {
+									$oldvaluelength = strlen(trim($existingvalue));
+									if ((strlen($existingvalue) > 10) && ($newvaluelength > $oldvaluelength) && (substr(trim($value), 0, strlen($existingvalue)) == $existingvalue)) {
+										$ThisFileInfo['comments'][$tagname][$existingkey] = trim($value);
+										break;
+									}
+								}
+
+							}
+							if (is_array($value) || empty($ThisFileInfo['comments'][$tagname]) || !in_array(trim($value), $ThisFileInfo['comments'][$tagname])) {
+								$value = (is_string($value) ? trim($value) : $value);
+								if (!is_int($key) && !ctype_digit($key)) {
+									$ThisFileInfo['comments'][$tagname][$key] = $value;
+								} else {
+									if (!isset($ThisFileInfo['comments'][$tagname])) {
+										$ThisFileInfo['comments'][$tagname] = array($value);
 									} else {
-										if (!isset($ThisFileInfo[$comments][$tagname])) {
-											$ThisFileInfo[$comments][$tagname] = array($value);
-										} else {
-											$ThisFileInfo[$comments][$tagname][] = $value;
-										}
+										$ThisFileInfo['comments'][$tagname][] = $value;
 									}
 								}
 							}
@@ -1609,7 +1612,7 @@ class getid3_lib
 			}
 
 			if ($option_tags_html) {
-				// Copy to ['comments_html'], if not already present.
+				// Copy ['comments'] to ['comments_html']
 				if (!empty($ThisFileInfo['comments'])) {
 					foreach ($ThisFileInfo['comments'] as $field => $values) {
 						if ($field == 'picture') {
@@ -1620,7 +1623,7 @@ class getid3_lib
 						foreach ($values as $index => $value) {
 							if (is_array($value)) {
 								$ThisFileInfo['comments_html'][$field][$index] = $value;
-							} elseif (empty($ThisFileInfo['comments_html'][$field][$index])) {
+							} else {
 								$ThisFileInfo['comments_html'][$field][$index] = str_replace('&#0;', '', self::MultiByteCharString2HTML($value, $ThisFileInfo['encoding']));
 							}
 						}

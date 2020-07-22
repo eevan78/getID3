@@ -14,6 +14,9 @@
 //                                                            ///
 /////////////////////////////////////////////////////////////////
 
+if (!defined('GETID3_INCLUDEPATH')) { // prevent path-exposing attacks that access modules directly on public webservers
+	exit;
+}
 
 define('EBML_ID_CHAPTERS',                  0x0043A770); // [10][43][A7][70] -- A system to define basic menus and partition data. For more detailed information, look at the Chapters Explanation.
 define('EBML_ID_SEEKHEAD',                  0x014D9B74); // [11][4D][9B][74] -- Contains the position of other level 1 elements.
@@ -362,7 +365,7 @@ class getid3_matroska extends getid3_handler
 								// create temp instance
 								$getid3_temp = new getID3();
 								if ($track_info['dataformat'] != 'flac') {
-									$getid3_temp->openfile($this->getid3->filename);
+									$getid3_temp->openfile($this->getid3->filename, $this->getid3->info['filesize'], $this->getid3->fp);
 								}
 								$getid3_temp->info['avdataoffset'] = $info['matroska']['track_data_offsets'][$trackarray['TrackNumber']]['offset'];
 								if ($track_info['dataformat'][0] == 'm' || $track_info['dataformat'] == 'flac') {

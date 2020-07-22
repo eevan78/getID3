@@ -99,6 +99,13 @@ class getID3
 	 */
 	public $encoding_id3v1  = 'ISO-8859-1';
 
+	/**
+	 * ID3v1 should always be 'ISO-8859-1', but some tags may be written in other encodings such as 'Windows-1251' or 'KOI8-R'. If true attempt to detect these encodings, but may return incorrect values for some tags actually in ISO-8859-1 encoding
+	 *
+	 * @var bool
+	 */
+	public $encoding_id3v1_autodetect  = false;
+
 	/*
 	 * Optional tag checks - disable for speed.
 	 */
@@ -250,7 +257,7 @@ class getID3
 	 */
 	protected $startup_warning = '';
 
-	const VERSION           = '1.9.19-202002221838';
+	const VERSION           = '1.9.20-202007201453';
 	const FREAD_BUFFER_SIZE = 32768;
 
 	const ATTACHMENTS_NONE   = false;
@@ -846,6 +853,14 @@ class getID3
 							'mime_type' => 'application/octet-stream',
 						),
 
+				// DSDIFF - audio     - Direct Stream Digital Interchange File Format
+				'dsdiff' => array(
+							'pattern'   => '^FRM8',
+							'group'     => 'audio',
+							'module'    => 'dsdiff',
+							'mime_type' => 'audio/dsd',
+						),
+
 				// DTS  - audio       - Dolby Theatre System
 				'dts'  => array(
 							'pattern'   => '^\\x7F\\xFE\\x80\\x01',
@@ -1041,6 +1056,14 @@ class getID3
 							'mime_type' => 'video/x-flv',
 						),
 
+				// IVF - audio/video - IVF
+				'ivf' => array(
+							'pattern'   => '^DKIF',
+							'group'     => 'audio-video',
+							'module'    => 'ivf',
+							'mime_type' => 'video/x-ivf',
+						),
+
 				// MKAV - audio/video - Mastroka
 				'matroska' => array(
 							'pattern'   => '^\\x1A\\x45\\xDF\\xA3',
@@ -1225,12 +1248,22 @@ class getID3
 							'iconv_req' => false,
 						),
 
+				// HPK  - data        - HPK compressed data
+				'hpk'  => array(
+							'pattern'   => '^BPUL',
+							'group'     => 'archive',
+							'module'    => 'hpk',
+							'mime_type' => 'application/octet-stream',
+							'fail_id3'  => 'ERROR',
+							'fail_ape'  => 'ERROR',
+						),
+
 				// RAR  - data        - RAR compressed data
 				'rar'  => array(
 							'pattern'   => '^Rar\\!',
 							'group'     => 'archive',
 							'module'    => 'rar',
-							'mime_type' => 'application/octet-stream',
+							'mime_type' => 'application/vnd.rar',
 							'fail_id3'  => 'ERROR',
 							'fail_ape'  => 'ERROR',
 						),
@@ -1314,6 +1347,16 @@ class getID3
 							'group'     => 'misc',
 							'module'    => 'msoffice',
 							'mime_type' => 'application/octet-stream',
+							'fail_id3'  => 'ERROR',
+							'fail_ape'  => 'ERROR',
+						),
+
+				// TORRENT             - .torrent
+				'torrent' => array(
+							'pattern'   => '^(d8\\:announce|d7\\:comment)',
+							'group'     => 'misc',
+							'module'    => 'torrent',
+							'mime_type' => 'application/x-bittorrent',
 							'fail_id3'  => 'ERROR',
 							'fail_ape'  => 'ERROR',
 						),
@@ -1432,6 +1475,7 @@ class getID3
 				'flac'      => array('vorbiscomment' , 'UTF-8'),
 				'divxtag'   => array('divx'          , 'ISO-8859-1'),
 				'iptc'      => array('iptc'          , 'ISO-8859-1'),
+				'dsdiff'    => array('dsdiff'        , 'ISO-8859-1'),
 			);
 		}
 
@@ -2070,6 +2114,61 @@ abstract class getid3_handler
 			}
 		}
 		return fseek($this->getid3->fp, $bytes, $whence);
+	}
+
+	/**
+	 * @return string|false
+	 *
+	 * @throws getid3_exception
+	 */
+	protected function fgets() {
+		// must be able to handle CR/LF/CRLF but not read more than one lineend
+		$buffer   = ''; // final string we will return
+		$prevchar = ''; // save previously-read character for end-of-line checking
+		if ($this->data_string_flag) {
+			while (true) {
+				$thischar = substr($this->data_string, $this->data_string_position++, 1);
+				if (($prevchar == "\r") && ($thischar != "\n")) {
+					// read one byte too many, back up
+					$this->data_string_position--;
+					break;
+				}
+				$buffer .= $thischar;
+				if ($thischar == "\n") {
+					break;
+				}
+				if ($this->data_string_position >= $this->data_string_length) {
+					// EOF
+					break;
+				}
+				$prevchar = $thischar;
+			}
+
+		} else {
+
+			// Ideally we would just use PHP's fgets() function, however...
+			// it does not behave consistently with regards to mixed line endings, may be system-dependent
+			// and breaks entirely when given a file with mixed \r vs \n vs \r\n line endings (e.g. some PDFs)
+			//return fgets($this->getid3->fp);
+			while (true) {
+				$thischar = fgetc($this->getid3->fp);
+				if (($prevchar == "\r") && ($thischar != "\n")) {
+					// read one byte too many, back up
+					fseek($this->getid3->fp, -1, SEEK_CUR);
+					break;
+				}
+				$buffer .= $thischar;
+				if ($thischar == "\n") {
+					break;
+				}
+				if (feof($this->getid3->fp)) {
+					break;
+				}
+				$prevchar = $thischar;
+			}
+
+		}
+		return $buffer;
 	}
 
 	/**
